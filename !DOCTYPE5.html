@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PalNavi - Pro Navigation</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Custom Styles -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800&display=swap');
+        
+        body, html {
+            font-family: 'Pretendard', sans-serif;
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            overflow: hidden;
+            background-color: #f3f4f6;
+        }
+
+        /* */
+        #map-container {
+            position: absolute; top: 0; bottom: 0; left: 0; right: 0;
+            overflow: hidden; background-color: #e5e7eb; z-index: 1;
+        }
+
+        #map {
+            position: absolute; top: 0; bottom: 0; left: 0; right: 0;
+            width: 100%; height: 100%;
+            transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), height 0.6s, top 0.6s;
+        }
+
+        /* 3D Mode (Perspective Hack) */
+        .map-3d-mode {
+            height: 180% !important; 
+            top: -40% !important;
+            transform: perspective(800px) rotateX(65deg);
+            transform-origin: 50% 75%;
+        }
+
+        /* */
+        .overlay-panel {
+            z-index: 1000; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(12px); background-color: rgba(255, 255, 255, 0.95);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .dark .overlay-panel {
+            background-color: rgba(31, 41, 55, 0.95); color: #f3f4f6;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .dark input { background-color: #374151; color: white; border-color: #4b5563; }
+
+        .hidden-top { opacity: 0; pointer-events: none; transform: translateY(-30px) scale(0.95); }
+        .hidden-bottom { opacity: 0; pointer-events: none; transform: translateY(100%); }
+
+        /* Map Controls */
+        .map-control-btn {
+            width: 44px; height: 44px; background: white; border-radius: 12px;
+            display: flex; justify-content: center; align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1); cursor: pointer;
+            color: #4b5563; transition: all 0.2s; font-size: 1.1rem; user-select: none;
+        }
+        .map-control-btn:hover { background: #f3f4f6; }
+        .map-control-btn.active { background: #3b82f6; color: white; border-color: #3b82f6;}
+        
+        .map-control-btn.active-traffic { background: #10b981; color: white; }
+        .map-control-btn.active-cctv { background: #f59e0b; color: white; }
+
+        .dark .map-control-btn { background: #374151; color: #d1d5db; border: 1px solid #4b5563;}
+        .dark .map-control-btn:hover { background: #4b5563; }
+        .dark .map-control-btn.active { background: #3b82f6; color: white; border: none;}
+        .dark .map-control-btn.active-traffic { background: #10b981; color: white; border: none;}
+        .dark .map-control-btn.active-cctv { background: #f59e0b; color: white; border: none;}
+
+        /* Alerts & Toasts */
+        #warning-flash {
+            z-index: 900; pointer-events: none; transition: opacity 0.2s ease-in-out;
+            background: radial-gradient(circle, transparent 20%, rgba(220, 38, 38, 0.4) 100%);
+        }
+        .flash-active { animation: pulse-red 0.4s infinite alternate; }
+        @keyframes pulse-red { 0% { opacity: 0; } 100% { opacity: 1; } }
+
+        #toast-container { z-index: 2000; position: absolute; top: 20px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+        .toast { background: rgba(0,0,0,0.8); color: white; padding: 10px 20px; border-radius: 20px; font-size: 14px; font-weight: 500; opacity: 1; transition: opacity 0.5s; }
+
+        /* */
+        /* My Location */
+        .my-loc-dot { width: 20px; height: 20px; background-color: #3b82f6; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px rgba(59, 130, 246, 0.8); position: relative; }
+        .my-loc-dot::after { content: ''; position: absolute; top: -15px; left: -15px; right: -15px; bottom: -15px; border-radius: 50%; border: 2px solid #3b82f6; animation: ripple 1.5s infinite ease-out; }
+        @keyframes ripple { 0% { transform: scale(0.5); opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } }
+
+        /* Car Marker */
+        .car-wrapper { transition: transform 0.3s linear; display: flex; justify-content: center; align-items: center; filter: drop-shadow(0 5px 5px rgba(0,0,0,0.5)); }
+        
+        /* Camera & Signs */
+        .cam-icon { width: 36px; height: 36px; background-color: white; border: 3px solid #ef4444; border-radius: 50%; display: flex; justify-content: center; align-items: center; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.5); color: #ef4444; font-size: 16px; font-weight: 900;}
+        .cam-icon.signal { border-color: #f59e0b; color: #f59e0b; }
+        
+        /* Section Control Markers */
+        .section-cam { background: #3b82f6; color: white; border-radius: 8px; font-size: 11px; font-weight: bold; padding: 4px; box-shadow: 0 4px 10px rgba(59,130,246,0.5); text-align: center; border: 2px solid white; }
+
+        /* Live CCTV Icon */
+        .cctv-live-icon { width: 30px; height: 30px; background: #1f2937; border-radius: 8px; display: flex; justify-content: center; align-items: center; color: white; border: 2px solid #6b7280; box-shadow: 0 4px 10px rgba(0,0,0,0.5); cursor: pointer; }
+        .cctv-live-icon::before { content: ''; position: absolute; top: -3px; right: -3px; width: 10px; height: 10px; background: #ef4444; border-radius: 50%; animation: blink 1s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+        /* Leaflet Tweaks */
+        .leaflet-control-attribution { display: none !important; }
+        .leaflet-popup-content-wrapper { padding: 0; overflow: hidden; border-radius: 12px; }
+        .leaflet-popup-content { margin: 0; }
+        .loader { border: 3px solid rgba(255,255,255,0.3); border-top: 3px solid white; border-radius: 50%; width: 18px; height: 18px; animation: spin 1s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="relative text-gray-800 transition-colors duration-300">
+
+    <!-- Red Screen Warning -->
+    <div id="warning-flash" class="absolute inset-0 opacity-0"></div>
+    <div id="toast-container"></div>
+
+    <!-- Map Container -->
+    <div id="map-container">
+        <div id="map"></div>
+    </div>
+
+    <!-- -->
+    
+    <!-- Right Map Controls -->
+    <div id="map-controls" class="absolute right-4 top-4 flex flex-col gap-3 z-[1000] transition-all duration-300">
+        <div class="map-control-btn" id="theme-toggle" title="주야간 테마 변경"><i class="fa-solid fa-moon"></i></div>
+        <div class="map-control-btn font-bold font-sans text-sm" id="3d-toggle" title="3D 모드">3D</div>
+        
+        <div class="w-full h-px bg-gray-300 dark:bg-gray-600 my-1"></div>
+        
+        <div class="map-control-btn font-bold text-sm" id="traffic-toggle" title="실시간 교통정보">교통</div>
+        <div class="map-control-btn font-bold text-sm" id="cctv-toggle" title="주변 CCTV 보기">CCTV</div>
+
+        <div class="w-full h-px bg-gray-300 dark:bg-gray-600 my-1"></div>
+
+        <div class="map-control-btn active" id="layer-std" title="일반 지도" data-layer="std"><i class="fa-solid fa-map"></i></div>
+        <div class="map-control-btn" id="layer-sat" title="위성 지도" data-layer="sat"><i class="fa-solid fa-satellite"></i></div>
+        
+        <div class="w-full h-px bg-gray-300 dark:bg-gray-600 my-1"></div>
+        
+        <button id="my-loc-btn" class="map-control-btn" title="내 위치"><i class="fa-solid fa-crosshairs text-blue-500"></i></button>
+    </div>
+
+    <!-- Search Panel -->
+    <div id="search-panel" class="absolute top-4 left-4 right-20 md:left-6 md:w-[380px] md:right-auto overlay-panel rounded-2xl p-5 flex flex-col gap-4">
+        <div class="flex justify-between items-center mb-1">
+            <h1 class="text-2xl font-extrabold flex items-center gap-2"><i class="fa-solid fa-location-arrow text-blue-500"></i> PalNavi</h1>
+            <button id="add-waypoint-btn" class="text-sm bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 px-3 py-1.5 rounded-lg font-medium transition-colors">
+                <i class="fa-solid fa-plus mr-1"></i> 경유지
+            </button>
+        </div>
+
+        <div class="flex gap-3 relative">
+            <div class="absolute left-1.5 top-5 bottom-5 w-0.5 bg-gray-300 dark:bg-gray-600 border-dashed border-l-2 flex flex-col justify-between items-center -ml-px"></div>
+            
+            <div class="flex flex-col gap-3 w-full" id="input-container">
+                <div class="relative flex items-center gap-3">
+                    <div class="w-3 h-3 rounded-full bg-blue-500 z-10 shrink-0"></div>
+                    <input type="text" id="start-input" placeholder="출발지 (예: 서울역)" class="w-full bg-gray-100 border border-transparent rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:bg-white dark:focus:bg-gray-800 transition-colors shadow-inner" value="서울역">
+                </div>
+                
+                <div id="waypoints-wrapper" class="flex flex-col gap-3"></div>
+
+                <div class="relative flex items-center gap-3">
+                    <div class="w-3 h-3 rounded-full bg-red-500 z-10 shrink-0"></div>
+                    <input type="text" id="end-input" placeholder="도착지 (예: 부산역)" class="w-full bg-gray-100 border border-transparent rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-500 focus:bg-white dark:focus:bg-gray-800 transition-colors shadow-inner" value="부산역">
+                </div>
+            </div>
+        </div>
+        
+        <button id="search-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl py-3.5 flex justify-center items-center gap-2 transition-colors shadow-lg shadow-blue-500/30">
+            <i class="fa-solid fa-route"></i>
+            <span id="search-btn-text">경로 찾기</span>
+            <div id="search-loader" class="loader hidden ml-2"></div>
+        </button>
+    </div>
+
+    <!-- Navigation Dashboard (Shows during SIM) -->
+    <div id="nav-dashboard" class="absolute top-4 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-[600px] overlay-panel rounded-2xl p-4 hidden-top flex items-center justify-between">
+        
+        <!-- Turn & Info -->
+        <div class="flex items-center gap-4">
+            <div class="w-14 h-14 bg-blue-100 dark:bg-blue-900 rounded-xl flex justify-center items-center text-blue-600 dark:text-blue-300 text-2xl shadow-inner shrink-0">
+                <i id="turn-icon" class="fa-solid fa-arrow-up"></i>
+            </div>
+            <div class="flex flex-col">
+                <p id="nav-distance" class="text-xl font-extrabold text-blue-600 dark:text-blue-400">안내 시작</p>
+                <p id="nav-instruction" class="text-sm font-medium text-gray-600 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis max-w-[130px] md:max-w-[200px]">안전 운전하세요</p>
+            </div>
+        </div>
+
+        <!-- Section Control UI (Hidden by default) -->
+        <div id="section-control-ui" class="hidden flex-col items-center bg-blue-50 dark:bg-blue-900/30 px-3 py-1 rounded-lg border border-blue-200 dark:border-blue-800 mx-2">
+            <span class="text-[10px] font-bold text-blue-600 dark:text-blue-400">구간단속 평균속도</span>
+            <span class="text-lg font-black text-blue-800 dark:text-blue-200"><span id="avg-speed">0</span><span class="text-xs"> km/h</span></span>
+        </div>
+
+        <!-- Speed & Limit -->
+        <div class="flex items-center gap-3 shrink-0">
+            <div class="relative">
+                <div class="w-14 h-14 rounded-full border-4 border-red-500 bg-white flex flex-col justify-center items-center shadow-lg">
+                    <span class="text-[9px] text-gray-800 font-bold -mb-1">제한</span>
+                    <span id="speed-limit" class="text-lg font-black text-black">50</span>
+                </div>
+            </div>
+            <div class="flex flex-col items-center min-w-[50px]">
+                <span id="current-speed" class="text-3xl font-black text-blue-600 dark:text-blue-400 leading-none">0</span>
+                <span class="text-xs font-bold text-gray-500">km/h</span>
+            </div>
+            <button id="stop-nav-btn" class="w-12 h-12 ml-2 bg-red-50 text-red-600 dark:bg-red-900/40 dark:text-red-400 rounded-xl flex justify-center items-center hover:bg-red-100 transition-colors shadow">
+                <i class="fa-solid fa-power-off text-xl"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Result Panel (Bottom) -->
+    <div id="result-panel" class="absolute bottom-0 left-0 right-0 md:left-6 md:bottom-6 md:w-[380px] overlay-panel rounded-t-3xl md:rounded-3xl p-6 hidden-bottom flex flex-col gap-5">
+        <div class="flex bg-gray-100 dark:bg-gray-800 rounded-xl p-1 shadow-inner">
+            <button class="transport-tab flex-1 py-2.5 text-sm font-bold rounded-lg bg-white dark:bg-gray-700 shadow text-blue-600 dark:text-blue-400 transition-all" data-mode="car"><i class="fa-solid fa-car"></i> 자동차</button>
+            <button class="transport-tab flex-1 py-2.5 text-sm font-bold rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-300 transition-all" data-mode="bike"><i class="fa-solid fa-bicycle"></i> 자전거</button>
+            <button class="transport-tab flex-1 py-2.5 text-sm font-bold rounded-lg text-gray-500 hover:text-gray-700 dark:text-gray-300 transition-all" data-mode="walk"><i class="fa-solid fa-person-walking"></i> 도보</button>
+        </div>
+
+        <div>
+            <div class="flex justify-between items-start mb-2">
+                <h2 class="text-4xl font-black tracking-tight text-blue-600 dark:text-blue-400" id="travel-time">--분</h2>
+                <button id="close-result-btn" class="w-8 h-8 flex justify-center items-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 hover:bg-gray-200 transition-colors"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <div class="flex gap-2 text-sm font-semibold">
+                <span id="total-distance" class="bg-gray-100 dark:bg-gray-800 px-2.5 py-1.5 rounded-lg"><i class="fa-solid fa-arrows-left-right text-gray-400"></i> -- km</span>
+                <span id="arrival-time" class="bg-gray-100 dark:bg-gray-800 px-2.5 py-1.5 rounded-lg"><i class="fa-regular fa-clock text-gray-400"></i> -- 도착</span>
+            </div>
+        </div>
+
+        <div id="route-info-box" class="flex flex-col gap-2 text-sm font-bold bg-gray-50 dark:bg-gray-800/50 p-3 rounded-xl border border-gray-100 dark:border-gray-700 hidden">
+            <div class="flex items-center justify-between text-red-600 dark:text-red-400">
+                <span><i class="fa-solid fa-camera"></i> 단속 카메라 (속도/신호)</span>
+                <span class="bg-red-100 dark:bg-red-900/50 px-2 py-0.5 rounded-md"><span id="cctv-count">0</span>대</span>
+            </div>
+            <div class="flex items-center justify-between text-blue-600 dark:text-blue-400">
+                <span><i class="fa-solid fa-road-bridge"></i> 구간 단속</span>
+                <span class="bg-blue-100 dark:bg-blue-900/50 px-2 py-0.5 rounded-md"><span id="section-count">0</span>구간</span>
+            </div>
+        </div>
+
+        <button id="sim-nav-btn" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold rounded-xl py-4 shadow-lg shadow-emerald-500/30 transition-all text-lg flex justify-center items-center gap-2">
+            <i class="fa-solid fa-play"></i> 모의 주행 시작
+        </button>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- -->
+    <script>
+        // Utilities
+        function showToast(msg) {
+            const t = document.createElement('div');
+            t.className = 'toast'; t.innerText = msg;
+            document.getElementById('toast-container').appendChild(t);
+            setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 500); }, 3000);
+        }
+
+        let isSpeaking = false;
+        function speak(text) {
+            if ('speechSynthesis' in window) {
+                // Prevent overlapping speech
+                if(isSpeaking) window.speechSynthesis.cancel();
+                const u = new SpeechSynthesisUtterance(text);
+                u.lang = 'ko-KR'; u.rate = 1.1; u.pitch = 1.0;
+                u.onstart = () => isSpeaking = true;
+                u.onend = () => isSpeaking = false;
+                window.speechSynthesis.speak(u);
+            }
+        }
+
+        // State variables
+        let isDarkMode = false;
+        let is3DMode = false;
+        let showTraffic = false;
+        let showLiveCCTV = false;
+        
+        // Auto Theme by Time (6 AM to 6 PM is Light)
+        const hour = new Date().getHours();
+        isDarkMode = (hour < 6 || hour >= 18);
+
+        // Init Map
+        const map = L.map('map', { zoomControl: false }).setView([37.5559, 126.9723], 13); // Seoul Stn default
+        
+        // Base Layers
+        const lightLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
+        const darkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19 });
+        const satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+        
+        let currentLayerType = 'std';
+
+        // Feature Groups for easy clearing
+        const routeGroup = L.featureGroup().addTo(map);
+        const cameraGroup = L.featureGroup().addTo(map);
+        const liveCctvGroup = L.featureGroup().addTo(map);
+
+        function updateMapTheme() {
+            map.removeLayer(lightLayer); map.removeLayer(darkLayer); map.removeLayer(satLayer);
+            
+            if (currentLayerType === 'sat') {
+                satLayer.addTo(map);
+                document.body.classList.add('dark');
+            } else {
+                if (isDarkMode) {
+                    darkLayer.addTo(map);
+                    document.body.classList.add('dark');
+                    document.getElementById('theme-toggle').innerHTML = '<i class="fa-solid fa-sun text-yellow-400"></i>';
+                } else {
+                    lightLayer.addTo(map);
+                    document.body.classList.remove('dark');
+                    document.getElementById('theme-toggle').innerHTML = '<i class="fa-solid fa-moon"></i>';
+                }
+            }
+            // Ensure routes are on top
+            routeGroup.bringToFront();
+            cameraGroup.bringToFront();
+            liveCctvGroup.bringToFront();
+        }
+        updateMapTheme();
+
+        // Control Listeners
+        document.getElementById('theme-toggle').addEventListener('click', () => {
+            isDarkMode = !isDarkMode;
+            if(currentLayerType !== 'sat') updateMapTheme();
+        });
+
+        document.querySelectorAll('[data-layer]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('[data-layer]').forEach(b => b.classList.remove('active'));
+                const target = e.currentTarget;
+                target.classList.add('active');
+                currentLayerType = target.dataset.layer;
+                updateMapTheme();
+            });
+        });
+
+        // 3D View Toggle
+        document.getElementById('3d-toggle').addEventListener('click', (e) => {
+            is3DMode = !is3DMode;
+            const mapEl = document.getElementById('map');
+            if (is3DMode) {
+                mapEl.classList.add('map-3d-mode');
+                e.currentTarget.classList.add('bg-blue-500', 'text-white');
+                e.currentTarget.classList.remove('dark:bg-gray-700');
+            } else {
+                mapEl.classList.remove('map-3d-mode');
+                e.currentTarget.classList.remove('bg-blue-500', 'text-white');
+            }
+            setTimeout(() => map.invalidateSize(), 600);
+        });
+
+        //        
+        let myLocMarker = null;
+        document.getElementById('my-loc-btn').addEventListener('click', () => {
+            if (!navigator.geolocation) { showToast("위치 정보를 지원하지 않습니다."); return; }
+            showToast("위치 탐색 중...");
+            navigator.geolocation.getCurrentPosition(pos => {
+                const lat = pos.coords.latitude;
+                const lng = pos.coords.longitude;
+                map.setView([lat, lng], 16);
+                document.getElementById('start-input').value = "현재 위치";
+
+                if (!myLocMarker) {
+                    const icon = L.divIcon({ className: '', html: '<div class="my-loc-dot"></div>', iconSize: [20, 20], iconAnchor: [10, 10] });
+                    myLocMarker = L.marker([lat, lng], { icon: icon }).addTo(map);
+                } else {
+                    myLocMarker.setLatLng([lat, lng]);
+                }
+            }, () => showToast("위치 권한을 허용해주세요."), { enableHighAccuracy: true });
+        });
+
+        let waypointCount = 0;
+        document.getElementById('add-waypoint-btn').addEventListener('click', () => {
+            if (waypointCount >= 2) { showToast("경유지는 2개까지만 가능합니다."); return; }
+            waypointCount++;
+            const wpDiv = document.createElement('div');
+            wpDiv.className = 'relative flex items-center gap-3';
+            wpDiv.innerHTML = `
+                <div class="w-3 h-3 rounded-full border-2 border-gray-400 bg-white z-10 shrink-0"></div>
+                <input type="text" placeholder="경유지 ${waypointCount}" class="waypoint-input w-full bg-gray-100 border border-transparent rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-purple-500 focus:bg-white dark:focus:bg-gray-800 transition-colors shadow-inner">
+                <button onclick="this.parentElement.remove(); waypointCount--;" class="absolute right-3 text-gray-400 hover:text-red-500"><i class="fa-solid fa-times-circle text-lg"></i></button>
+            `;
+            document.getElementById('waypoints-wrapper').appendChild(wpDiv);
+        });
+
+        //        
+        let routeCoords = []; 
+        let totalDistMeters = 0;
+        let currentMode = 'car';
+        
+        // POI Data
+        let cameras = []; 
+        let sectionControl = null; // { startIdx, endIdx, limit, length }
+
+        async function geocode(address) {
+            if (address === "현재 위치" && myLocMarker) {
+                const pos = myLocMarker.getLatLng();
+                return [pos.lat, pos.lng];
+            }
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`);
+                const data = await res.json();
+                if (data.length > 0) return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+            } catch (e) {}
+            return null;
+        }
+
+        function drawRouteWithTraffic() {
+            routeGroup.clearLayers();
+            
+            if (!showTraffic) {
+                // Single Blue Line
+                L.polyline(routeCoords, { color: '#3b82f6', weight: 6, opacity: 0.8 }).addTo(routeGroup);
+            } else {
+                // Colored Traffic Segments (Simulated)
+                for(let i=0; i<routeCoords.length-1; i++) {
+                    // Generate stable random speed per chunk (every 10 coords)
+                    let chunkId = Math.floor(i/10);
+                    let pseudoRandom = Math.sin(chunkId * 100) * 0.5 + 0.5; // 0.0 to 1.0
+                    
+                    let color = '#10b981'; // Green (Fast)
+                    if (pseudoRandom > 0.85) color = '#ef4444'; // Red (Jam)
+                    else if (pseudoRandom > 0.6) color = '#f59e0b'; // Yellow (Slow)
+                    
+                    L.polyline([routeCoords[i], routeCoords[i+1]], { color: color, weight: 6, opacity: 0.9 }).addTo(routeGroup);
+                }
+            }
+        }
+
+        // Traffic Toggle Logic
+        document.getElementById('traffic-toggle').addEventListener('click', (e) => {
+            showTraffic = !showTraffic;
+            if(showTraffic) e.currentTarget.classList.add('active-traffic');
+            else e.currentTarget.classList.remove('active-traffic');
+            if(routeCoords.length > 0) drawRouteWithTraffic();
+        });
+
+        // Live CCTV Logic
+        document.getElementById('cctv-toggle').addEventListener('click', (e) => {
+            showLiveCCTV = !showLiveCCTV;
+            const btn = e.currentTarget;
+            if(showLiveCCTV) {
+                btn.classList.add('active-cctv');
+                generateLiveCCTV();
+            } else {
+                btn.classList.remove('active-cctv');
+                liveCctvGroup.clearLayers();
+            }
+        });
+
+        function generateLiveCCTV() {
+            liveCctvGroup.clearLayers();
+            if(routeCoords.length === 0) return;
+            
+            // Place 3-5 random CCTVs along the route
+            const num = Math.floor(Math.random()*3) + 3;
+            for(let i=0; i<num; i++) {
+                const idx = Math.floor(Math.random() * routeCoords.length);
+                const pt = routeCoords[idx];
+                
+                const icon = L.divIcon({ className: '', html: '<div class="cctv-live-icon"><i class="fa-solid fa-video"></i></div>', iconSize:[30,30], iconAnchor:[15,15] });
+                const marker = L.marker(pt, {icon}).addTo(liveCctvGroup);
+                
+                // Embedded looping traffic GIF popup
+                const popupContent = `
+                    <div class="bg-gray-900 text-white p-2 rounded-lg w-[200px]">
+                        <div class="text-xs font-bold mb-1 flex items-center gap-1"><span class="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span> 국도 라이브 캠</div>
+                        <img src="https://media.giphy.com/media/xT1R9B7cgalepWEbiU/giphy.gif" class="w-full h-[120px] object-cover rounded" alt="CCTV">
+                    </div>
+                `;
+                marker.bindPopup(popupContent);
+            }
+        }
+
+        document.getElementById('search-btn').addEventListener('click', async () => {
+            const startStr = document.getElementById('start-input').value;
+            const endStr = document.getElementById('end-input').value;
+            if (!startStr || !endStr) { showToast("출발지와 도착지를 입력하세요."); return; }
+
+            document.getElementById('search-loader').classList.remove('hidden');
+            document.getElementById('search-btn-text').innerText = '경로 분석 중...';
+
+            try {
+                const points = [];
+                const start = await geocode(startStr); if(start) points.push(start);
+                
+                for (let input of document.querySelectorAll('.waypoint-input')) {
+                    if(input.value) { const p = await geocode(input.value); if(p) points.push(p); }
+                }
+                const end = await geocode(endStr); if(end) points.push(end);
+                if (points.length < 2) throw new Error("위치를 정확히 찾을 수 없습니다.");
+
+                const osrmCoords = points.map(p => `${p[1]},${p[0]}`).join(';');
+                const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${osrmCoords}?overview=full&geometries=geojson`);
+                const data = await res.json();
+
+                if (data.code === 'Ok') {
+                    routeCoords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+                    totalDistMeters = data.routes[0].distance;
+
+                    drawRouteWithTraffic();
+                    map.fitBounds(L.polyline(routeCoords).getBounds(), { padding: [50, 50] });
+
+                    generatePOI();
+                    updateTimeUI();
+                    if(showLiveCCTV) generateLiveCCTV();
+                    
+                    document.getElementById('result-panel').classList.remove('hidden-bottom');
+                } else { showToast("경로를 찾을 수 없습니다."); }
+            } catch (e) { showToast(e.message); }
+
+            document.getElementById('search-loader').classList.add('hidden');
+            document.getElementById('search-btn-text').innerText = '경로 찾기';
+        });
+
+        //
+        function generatePOI() {
+            cameraGroup.clearLayers();
+            cameras = []; sectionControl = null;
+            if(routeCoords.length < 30) { document.getElementById('route-info-box').classList.add('hidden'); return; }
+
+            // 1. Generate Section Control (구간단속)
+            const scStart = Math.floor(routeCoords.length * 0.3);
+            const scEnd = Math.floor(routeCoords.length * 0.6);
+            sectionControl = { startIdx: scStart, endIdx: scEnd, limit: 50 };
+            
+            const scStartIcon = L.divIcon({ className:'', html:'<div class="section-cam">구간단속<br>시작 50</div>', iconSize:[60,40], iconAnchor:[30,40]});
+            const scEndIcon = L.divIcon({ className:'', html:'<div class="section-cam" style="background:#4b5563;">구간단속<br>종료</div>', iconSize:[60,40], iconAnchor:[30,40]});
+            
+            L.marker(routeCoords[scStart], {icon: scStartIcon}).addTo(cameraGroup);
+            L.marker(routeCoords[scEnd], {icon: scEndIcon}).addTo(cameraGroup);
+
+            // 2. Generate Speed/Signal Cameras
+            const camLimits = [30, 50, 70];
+            const numCams = Math.floor(Math.random() * 3) + 2;
+            
+            for(let i=0; i<numCams; i++) {
+                // Ensure outside section control to avoid overlap
+                let idx; do { idx = Math.floor(Math.random() * routeCoords.length); } while(idx >= scStart && idx <= scEnd);
+                
+                const limit = camLimits[Math.floor(Math.random()*camLimits.length)];
+                const isSignal = Math.random() > 0.5;
+                
+                const html = isSignal ? `<div class="cam-icon signal"><i class="fa-solid fa-traffic-light"></i></div>` : `<div class="cam-icon">${limit}</div>`;
+                const icon = L.divIcon({ className:'', html, iconSize:[36,36], iconAnchor:[18,18] });
+                
+                L.marker(routeCoords[idx], {icon}).addTo(cameraGroup);
+                cameras.push({ idx, latLng: routeCoords[idx], limit, isSignal, warned: false });
+            }
+
+            document.getElementById('cctv-count').innerText = cameras.length;
+            document.getElementById('section-count').innerText = 1;
+            document.getElementById('route-info-box').classList.remove('hidden');
+        }
+
+        function updateTimeUI() {
+            const distKm = (totalDistMeters / 1000).toFixed(1);
+            document.getElementById('total-distance').innerHTML = `<i class="fa-solid fa-arrows-left-right text-gray-400"></i> ${distKm} km`;
+
+            let mins = 0;
+            // Car: avg 40km/h, Bike: 15km/h(4.16m/s), Walk: 4.8km/h(1.33m/s)
+            if (currentMode === 'car') mins = Math.ceil((totalDistMeters / 1000) / 40 * 60);
+            else if (currentMode === 'bike') mins = Math.ceil(totalDistMeters / 4.16 / 60);
+            else if (currentMode === 'walk') mins = Math.ceil(totalDistMeters / 1.33 / 60);
+
+            document.getElementById('travel-time').innerText = mins >= 60 ? `${Math.floor(mins/60)}시간 ${mins%60}분` : `${mins}분`;
+            
+            const arr = new Date(Date.now() + mins * 60000);
+            let h = arr.getHours(); const ampm = h >= 12 ? '오후' : '오전'; h = h % 12 || 12;
+            const m = arr.getMinutes().toString().padStart(2, '0');
+            document.getElementById('arrival-time').innerHTML = `<i class="fa-regular fa-clock text-gray-400"></i> ${ampm} ${h}:${m} 도착`;
+        }
+
+        document.querySelectorAll('.transport-tab').forEach(t => t.addEventListener('click', (e) => {
+            document.querySelectorAll('.transport-tab').forEach(b => {
+                b.classList.remove('bg-white', 'dark:bg-gray-700', 'shadow', 'text-blue-600', 'dark:text-blue-400');
+                b.classList.add('text-gray-500', 'dark:text-gray-300');
+            });
+            const btn = e.currentTarget;
+            btn.classList.remove('text-gray-500'); btn.classList.add('bg-white', 'dark:bg-gray-700', 'shadow', 'text-blue-600', 'dark:text-blue-400');
+            currentMode = btn.dataset.mode;
+            updateTimeUI();
+        }));
+
+        //
+        let simTimer = null;
+        let simMarker = null;
+        const flash = document.getElementById('warning-flash');
+
+        function getBearing(lat1, lng1, lat2, lng2) {
+            const p1 = lat1 * Math.PI/180, l1 = lng1 * Math.PI/180;
+            const p2 = lat2 * Math.PI/180, l2 = lng2 * Math.PI/180;
+            const y = Math.sin(l2-l1) * Math.cos(p2);
+            const x = Math.cos(p1)*Math.sin(p2) - Math.sin(p1)*Math.cos(p2)*Math.cos(l2-l1);
+            return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+        }
+
+        function getDistMeters(lat1, lng1, lat2, lng2) { return map.distance([lat1, lng1], [lat2, lng2]); }
+
+        document.getElementById('close-result-btn').addEventListener('click', () => { document.getElementById('result-panel').classList.add('hidden-bottom'); });
+
+        document.getElementById('sim-nav-btn').addEventListener('click', () => {
+            if (routeCoords.length === 0) return;
+            if (currentMode !== 'car') { showToast("모의 주행은 '자동차' 모드에서만 가능합니다."); return; }
+            
+            document.getElementById('search-panel').classList.add('hidden-top');
+            document.getElementById('result-panel').classList.add('hidden-bottom');
+            document.getElementById('nav-dashboard').classList.remove('hidden-top');
+            
+            speak("경로 안내를 시작합니다. 전방 주시하시고 안전운전 하세요.");
+
+            const carIcon = L.divIcon({
+                className: '',
+                html: `<div id="car-svg-wrap" class="car-wrapper"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="48" height="48"><path fill="#3b82f6" stroke="white" stroke-width="15" d="M135.2 117.4L109.1 192H402.9l-26.1-74.6C372.3 104.6 360.2 96 346.6 96H165.4c-13.6 0-25.7 8.6-30.2 21.4zM39.6 196.8L74.8 96.3C88.3 57.8 124.6 32 165.4 32H346.6c40.8 0 77.1 25.8 90.6 64.3l35.2 100.5c23.2 9.6 39.6 32.5 39.6 59.2V400v48c0 17.7-14.3 32-32 32H448c-17.7 0-32-14.3-32-32V400H96v48c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32V400V256c0-26.7 16.4-49.6 39.6-59.2zM128 288a32 32 0 1 0 -64 0 32 32 0 1 0 64 0zm288 32a32 32 0 1 0 0-64 32 32 0 1 0 0 64z"/></svg></div>`,
+                iconSize: [48, 48], iconAnchor: [24, 24]
+            });
+
+            if(!simMarker) simMarker = L.marker(routeCoords[0], {icon: carIcon, zIndexOffset: 1000}).addTo(map);
+            else simMarker.setLatLng(routeCoords[0]);
+
+            map.setView(routeCoords[0], 18);
+            startSim();
+        });
+
+        function startSim() {
+            let idx = 0;
+            let currentSpd = 0;
+            let targetSpd = 50; 
+            
+            // Section Control State
+            let inSection = false;
+            let sectionStartTime = 0;
+            let sectionStartDist = 0;
+            let distanceTraveled = 0;
+
+            const scUI = document.getElementById('section-control-ui');
+            const avgSpdTxt = document.getElementById('avg-speed');
+            const instTxt = document.getElementById('nav-instruction');
+
+            simTimer = setInterval(() => {
+                if (idx >= routeCoords.length - 1) {
+                    stopSim(); speak("목적지에 도착했습니다. 안내를 종료합니다."); return;
+                }
+
+                const curr = routeCoords[idx];
+                const next = routeCoords[idx+1];
+                const bearing = getBearing(curr[0], curr[1], next[0], next[1]);
+                const distToNext = getDistMeters(curr[0], curr[1], next[0], next[1]);
+                
+                distanceTraveled += distToNext;
+
+                // Basic Speed Logic (Accel/Decel)
+                if(currentSpd < targetSpd) currentSpd += Math.random() * 5;
+                else if(currentSpd > targetSpd) currentSpd -= Math.random() * 5;
+                currentSpd += (Math.random() - 0.5) * 4; // micro fluctuations
+                if(currentSpd < 0) currentSpd = 0;
+                
+                let displaySpd = Math.round(currentSpd);
+                document.getElementById('current-speed').innerText = displaySpd;
+
+                // Base Limit is 50 unless in specific zones
+                let activeLimit = 50;
+                document.getElementById('speed-limit').innerText = activeLimit;
+
+                // 1. Check Section Control (구간단속)
+                if (sectionControl) {
+                    if (idx === sectionControl.startIdx) {
+                        inSection = true;
+                        sectionStartTime = Date.now();
+                        sectionStartDist = distanceTraveled;
+                        scUI.classList.remove('hidden');
+                        scUI.classList.add('flex');
+                        speak(`시속 ${sectionControl.limit}킬로미터, 구간단속 시작 지점입니다.`);
+                    } else if (idx === sectionControl.endIdx) {
+                        inSection = false;
+                        scUI.classList.remove('flex');
+                        scUI.classList.add('hidden');
+                        speak("구간단속 종료 지점입니다.");
+                    }
+
+                    if (inSection) {
+                        activeLimit = sectionControl.limit;
+                        document.getElementById('speed-limit').innerText = activeLimit;
+                        
+                        // Calculate Average Speed
+                        const timeElapsedSec = (Date.now() - sectionStartTime) / 1000;
+                        const distElapsedM = distanceTraveled - sectionStartDist;
+                        // Speed (m/s) to km/h
+                        let avgSpd = Math.round((distElapsedM / timeElapsedSec) * 3.6);
+                        if(avgSpd > 120) avgSpd = displaySpd; // Prevent weird spikes at start
+                        avgSpdTxt.innerText = avgSpd;
+
+                        // Warn if average is over
+                        if (avgSpd > activeLimit + 5) {
+                            flash.classList.add('flash-active');
+                            if(!isSpeaking) speak("구간 평균 속도를 줄이십시오.");
+                        }
+                    }
+                }
+
+                // 2. Check Cameras (Point Cameras)
+                let nearCamera = null;
+                cameras.forEach(c => {
+                    const d = getDistMeters(next[0], next[1], c.latLng[0], c.latLng[1]);
+                    // If moving towards camera within 300m and not passed yet (idx < c.idx)
+                    if (!c.warned && d < 300 && idx < c.idx) {
+                        c.warned = true;
+                        if(c.isSignal) {
+                            speak(`전방 300미터 앞, 시속 ${c.limit}킬로미터 신호 및 과속 단속 구간입니다.`);
+                            instTxt.innerText = `300m 앞 신호/과속 (${c.limit}km/h)`;
+                        } else {
+                            speak(`전방에 시속 ${c.limit}킬로미터 과속 단속 카메라가 있습니다.`);
+                            instTxt.innerText = `단속 카메라 주의 (${c.limit}km/h)`;
+                        }
+                    }
+                    if (d < 100 && idx < c.idx) nearCamera = c; // Slow down near camera
+                });
+
+                if(nearCamera) {
+                    targetSpd = nearCamera.limit - 5; // AI slows down
+                    activeLimit = nearCamera.limit;
+                    document.getElementById('speed-limit').innerText = activeLimit;
+                } else {
+                    targetSpd = 55; // Default cruising speed
+                    instTxt.innerText = "경로를 따라 이동중입니다";
+                }
+
+                // 3. Current Speed Warning
+                if (displaySpd > activeLimit && !inSection) {
+                    flash.classList.add('flash-active');
+                    if(!isSpeaking) speak("속도 위반입니다. 속도를 줄이십시오.");
+                } else if (!inSection || parseInt(avgSpdTxt.innerText) <= activeLimit) {
+                    flash.classList.remove('flash-active');
+                }
+
+                // Move & Rotate
+                simMarker.setLatLng(next);
+                const carSvg = document.getElementById('car-svg-wrap');
+                if(carSvg) carSvg.style.transform = `rotate(${bearing}deg)`;
+                
+                map.panTo(next, {animate: true, duration: 1});
+                
+                idx++;
+            }, 1000);
+        }
+
+        function stopSim() {
+            clearInterval(simTimer);
+            flash.classList.remove('flash-active');
+            document.getElementById('nav-dashboard').classList.add('hidden-top');
+            document.getElementById('section-control-ui').classList.add('hidden');
+            document.getElementById('section-control-ui').classList.remove('flex');
+            document.getElementById('search-panel').classList.remove('hidden-top');
+            document.getElementById('result-panel').classList.remove('hidden-bottom');
+            if(routeCoords.length > 0) map.fitBounds(L.polyline(routeCoords).getBounds(), { padding: [50, 50] });
+        }
+
+        document.getElementById('stop-nav-btn').addEventListener('click', () => {
+            stopSim(); speak("경로 안내를 취소합니다.");
+        });
+
+    </script>
+</body>
+</html>
